@@ -68,7 +68,7 @@ export default function ContactForm({ contact, onSave, onClose }) {
     try {
       const fd = new FormData();
       fd.append('card', file);
-      const res = await fetch('/api/contacts/scan-card', {
+      const res = await fetch('/api/scan-card', {
         method: 'POST',
         body: fd,
       });
