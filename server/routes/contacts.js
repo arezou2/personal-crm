@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
+const Anthropic = require('@anthropic-ai/sdk');
 
 // Multer config for photo uploads
 const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
@@ -165,6 +166,49 @@ router.post('/:id/photo', upload.single('photo'), (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to upload photo' });
+  }
+});
+
+// POST /api/contacts/scan-card
+router.post('/scan-card', upload.single('card'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const imageData = fs.readFileSync(req.file.path).toString('base64');
+    const mimeType = req.file.mimetype || 'image/jpeg';
+
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const response = await client.messages.create({
+      model: 'claude-opus-4-5',
+      max_tokens: 256,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mimeType, data: imageData }
+          },
+          {
+            type: 'text',
+            text: 'Extract contact information from this business card. Return ONLY valid JSON with these keys: name, email, phone, company. Use empty string for any field not found. Example: {"name":"John Smith","email":"john@example.com","phone":"+1-555-0100","company":"Acme Corp"}'
+          }
+        ]
+      }]
+    });
+
+    // Clean up temp file
+    fs.unlinkSync(req.file.path);
+
+    const text = response.content[0].text.trim();
+    // Extract JSON from response (handle markdown code blocks)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const extracted = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+    res.json({ success: true, contact: extracted });
+  } catch (err) {
+    console.error('scan-card error:', err);
+    if (req.file) try { fs.unlinkSync(req.file.path); } catch(e) {}
+    res.status(500).json({ error: err.message });
   }
 });
 

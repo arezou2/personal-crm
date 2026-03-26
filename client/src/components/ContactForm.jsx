@@ -15,7 +15,10 @@ export default function ContactForm({ contact, onSave, onClose }) {
   const [photoPreview, setPhotoPreview] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [scanToast, setScanToast] = useState('');
   const fileInputRef = useRef();
+  const cardInputRef = useRef();
   const firstInputRef = useRef();
 
   useEffect(() => {
@@ -46,6 +49,55 @@ export default function ContactForm({ contact, onSave, onClose }) {
     const reader = new FileReader();
     reader.onload = (ev) => setPhotoPreview(ev.target.result);
     reader.readAsDataURL(file);
+  };
+
+  const handleCardScan = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Also set it as the contact photo
+    setPhotoFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setPhotoPreview(ev.target.result);
+    reader.readAsDataURL(file);
+
+    setScanning(true);
+    setScanToast('');
+    setError('');
+
+    try {
+      const fd = new FormData();
+      fd.append('card', file);
+      const res = await fetch('/api/contacts/scan-card', {
+        method: 'POST',
+        body: fd,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Scan failed');
+      }
+
+      const data = await res.json();
+      const c = data.contact || {};
+
+      setForm(f => ({
+        ...f,
+        name: c.name || f.name,
+        email: c.email || f.email,
+        phone: c.phone || f.phone,
+        company: c.company || f.company,
+      }));
+
+      setScanToast('✨ Card scanned! Fields auto-filled.');
+      setTimeout(() => setScanToast(''), 4000);
+    } catch (err) {
+      setError(`Card scan failed: ${err.message}. You can still fill in fields manually.`);
+    } finally {
+      setScanning(false);
+      // Reset file input so same file can be re-selected
+      if (cardInputRef.current) cardInputRef.current.value = '';
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -116,11 +168,6 @@ export default function ContactForm({ contact, onSave, onClose }) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
-  const previewContact = {
-    name: form.name || 'New Contact',
-    photo: photoPreview && photoFile ? null : contact?.photo,
-  };
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
@@ -144,11 +191,63 @@ export default function ContactForm({ contact, onSave, onClose }) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto max-h-[calc(100vh-200px)]">
+          {/* Scan success toast */}
+          {scanToast && (
+            <div className="mb-4 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm flex items-center gap-2">
+              {scanToast}
+            </div>
+          )}
+
           {error && (
             <div className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
               {error}
             </div>
           )}
+
+          {/* Business Card Scanner */}
+          <div className="mb-6 p-4 rounded-xl border border-dashed border-[#8b5cf6]/40 bg-[#8b5cf6]/5 hover:border-[#8b5cf6]/60 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-[#8b5cf6]/20 flex items-center justify-center flex-shrink-0">
+                  {scanning ? (
+                    <svg className="animate-spin w-4 h-4 text-[#a78bfa]" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="7" width="20" height="14" rx="2"/>
+                      <path d="M16 3H8"/>
+                      <path d="M12 3v4"/>
+                    </svg>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-[#a78bfa]">
+                    {scanning ? 'Scanning card...' : 'Scan Business Card'}
+                  </p>
+                  <p className="text-xs text-[#666] mt-0.5">
+                    {scanning ? 'Extracting contact info with AI...' : 'Upload a photo to auto-fill all fields'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={scanning}
+                onClick={() => cardInputRef.current?.click()}
+                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-[#8b5cf6]/20 text-[#a78bfa] hover:bg-[#8b5cf6]/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                {scanning ? 'Scanning...' : 'Upload Card'}
+              </button>
+            </div>
+            <input
+              ref={cardInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleCardScan}
+            />
+          </div>
 
           {/* Photo Upload */}
           <div className="flex items-center gap-4 mb-6">
